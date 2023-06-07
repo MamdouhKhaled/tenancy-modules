@@ -1,0 +1,21 @@
+{
+    "name": "mamdouhkhaled/tenancy-modules",
+    "description": "Connect Laravel Tenancy with Laravel Modules",
+    "license": "MIT",
+    "require": {
+        "nwidart/laravel-modules": "^10.0",
+        "stancl/tenancy": "^3.7"
+    },
+    "autoload": {
+        "psr-4": {
+            "Mamdouh\\TenancyModules\\": "src/"
+        }
+    },
+    "authors": [
+        {
+            "name": "Mamdouh Khaled",
+            "email": "Mamdouh.Khaled@live.com"
+        }
+    ],
+    "minimum-stability": "stable"
+}
