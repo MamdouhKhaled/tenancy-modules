@@ -6,7 +6,6 @@ use Illuminate\Console\Command;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Support\Arr;
 use Nwidart\Modules\Migrations\Migrator;
-use Nwidart\Modules\Support\Config\GenerateConfigReader;
 use Nwidart\Modules\Traits\MigrationLoaderTrait;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
@@ -77,7 +76,6 @@ class TenantMigrateRollbackCommand extends Command
         if (is_string($module)) {
             $module = $this->module->findOrFail($module);
         }
-//        dd($module->get('migration'));
         $migrator = new Migrator($module, $this->getLaravel());
         $database = $this->option('database');
 
@@ -121,7 +119,7 @@ class TenantMigrateRollbackCommand extends Command
             ['database', null, InputOption::VALUE_OPTIONAL, 'The database connection to use.'],
             ['force', null, InputOption::VALUE_NONE, 'Force the operation to run when in production.'],
             ['pretend', null, InputOption::VALUE_NONE, 'Dump the SQL queries that would be run.'],
-            ['tenants', null, InputOption::VALUE_NONE, 'Dump the SQL queries that would be run.'],
+            ['tenant', null, InputOption::VALUE_NONE, 'Run Migration in specific tenant'],
         ];
     }
 }

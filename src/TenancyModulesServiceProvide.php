@@ -5,6 +5,8 @@ namespace Mamdouh\TenancyModules;
 use Illuminate\Support\Arr;
 use Illuminate\Support\ServiceProvider;
 use JetBrains\PhpStorm\NoReturn;
+use Mamdouh\TenancyModules\Commands\TenantDisableCommand;
+use Mamdouh\TenancyModules\Commands\TenantEnableCommand;
 use Mamdouh\TenancyModules\Commands\TenantMigrateCommand;
 use Mamdouh\TenancyModules\Commands\TenantMigrateRollbackCommand;
 use Illuminate\Contracts\Config\Repository;
@@ -42,6 +44,8 @@ class TenancyModulesServiceProvide extends ServiceProvider
             $this->commands([
                 TenantMigrateCommand::class,
                 TenantMigrateRollbackCommand::class,
+                TenantDisableCommand::class,
+                TenantEnableCommand::class,
             ]);
         }
     }
@@ -49,7 +53,9 @@ class TenancyModulesServiceProvide extends ServiceProvider
     private function configOverwrite() :void
     {
         $this->config = $this->app->make(Repository::class);
-        $config = Arr::dot($this->config->get('tenancymodules'));
+        $tenancymodules = $this->config->get('tenancymodules');
+        unset($tenancymodules['modules']['paths']);
+        $config = Arr::dot($tenancymodules);
         foreach ($config as $configKey => $configValue){
             $this->config->set($configKey,$configValue);
         }

@@ -118,7 +118,7 @@ class TenantMigrateCommand extends Command
             ['force', null, InputOption::VALUE_NONE, 'Force the operation to run when in production.'],
             ['seed', null, InputOption::VALUE_NONE, 'Indicates if the seed task should be re-run.'],
             ['subpath', null, InputOption::VALUE_OPTIONAL, 'Indicate a subpath to run your migrations from'],
-            ['tenants', null, InputOption::VALUE_OPTIONAL, 'Indicate a tenants to run your migrations from'],
+            ['tenant', null, InputOption::VALUE_OPTIONAL, 'Run Migration rollback in specific tenant'],
         ];
     }
 }

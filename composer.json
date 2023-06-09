@@ -17,5 +17,12 @@
             "email": "Mamdouh.Khaled@live.com"
         }
     ],
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Mamdouh\\TenancyModules\\TenancyModulesServiceProvide"
+            ]
+        }
+    },
     "minimum-stability": "stable"
 }
