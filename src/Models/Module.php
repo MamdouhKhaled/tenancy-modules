@@ -8,4 +8,5 @@ use Illuminate\Database\Eloquent\Model;
 class Module extends Model
 {
     use HasFactory;
+    protected $fillable = ['tenant_id','isActive','name'];
 }

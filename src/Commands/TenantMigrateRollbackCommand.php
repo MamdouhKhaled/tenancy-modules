@@ -119,7 +119,7 @@ class TenantMigrateRollbackCommand extends Command
             ['database', null, InputOption::VALUE_OPTIONAL, 'The database connection to use.'],
             ['force', null, InputOption::VALUE_NONE, 'Force the operation to run when in production.'],
             ['pretend', null, InputOption::VALUE_NONE, 'Dump the SQL queries that would be run.'],
-            ['tenant', null, InputOption::VALUE_NONE, 'Run Migration in specific tenant'],
+            ['tenants', null, InputOption::VALUE_NONE, 'Run Migration in specific tenant'],
         ];
     }
 }

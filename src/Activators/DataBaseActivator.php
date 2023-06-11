@@ -42,10 +42,14 @@ class DataBaseActivator implements ActivatorInterface
      */
     public function enable(Module $module): void
     {
-        $this->config->get('tenancymodules.model')::where([
+        $this->config->get('tenancymodules.model')::updateOrCreate([
             'tenant_id' => self::$tenancy,
             'name' => $module->getName()
-        ])->update(['isActive'=>true]);
+        ],[
+            'tenant_id' => self::$tenancy,
+            'name' => $module->getName(),
+            'isActive'=>true
+        ]);
     }
 
     /**
@@ -53,10 +57,14 @@ class DataBaseActivator implements ActivatorInterface
      */
     public function disable(Module $module): void
     {
-        $this->config->get('tenancymodules.model')::where([
+        $this->config->get('tenancymodules.model')::updateOrCreate([
             'tenant_id' => self::$tenancy,
             'name' => $module->getName()
-        ])->update(['isActive'=>false]);
+        ],[
+            'tenant_id' => self::$tenancy,
+            'name' => $module->getName(),
+            'isActive'=>false
+        ]);
     }
 
     /**
