@@ -30,6 +30,9 @@ class TenancyModulesServiceProvide extends ServiceProvider
     {
         $this->mergeConfigFrom(__DIR__.'/../config/tenancymodules.php','tenancymodules');
         $this->configOverwrite();
+        $this->publishes([
+            __DIR__.'/../config/tenancymodules.php' => config_path('tenancymodules.php'),
+        ], 'tenancymodules');
     }
 
     /**

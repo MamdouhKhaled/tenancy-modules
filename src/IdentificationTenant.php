@@ -22,6 +22,6 @@ class IdentificationTenant
 
     public function getTenant()
     {
-        return $this->tenant->id;
+        return $this->tenant?->id;
     }
 }
