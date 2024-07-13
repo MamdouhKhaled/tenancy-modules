@@ -3,8 +3,8 @@
     "description": "Connect Laravel Tenancy with Laravel Modules",
     "license": "MIT",
     "require": {
-        "nwidart/laravel-modules": "^10.0",
-        "stancl/tenancy": "^3.7"
+        "nwidart/laravel-modules": "*",
+        "stancl/tenancy": "*"
     },
     "autoload": {
         "psr-4": {
