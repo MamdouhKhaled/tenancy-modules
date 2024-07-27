@@ -10,6 +10,7 @@ use Mamdouh\TenancyModules\Commands\TenantEnableCommand;
 use Mamdouh\TenancyModules\Commands\TenantMigrateCommand;
 use Mamdouh\TenancyModules\Commands\TenantMigrateRollbackCommand;
 use Illuminate\Contracts\Config\Repository;
+use Mamdouh\TenancyModules\Commands\TenantSeedCommand;
 
 class TenancyModulesServiceProvide extends ServiceProvider
 {
@@ -49,6 +50,7 @@ class TenancyModulesServiceProvide extends ServiceProvider
                 TenantMigrateRollbackCommand::class,
                 TenantDisableCommand::class,
                 TenantEnableCommand::class,
+                TenantSeedCommand::class,
             ]);
         }
     }

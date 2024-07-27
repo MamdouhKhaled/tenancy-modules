@@ -38,6 +38,15 @@ php artisan module:tenant-migrate-rollback --tenants={{tenant-id}}
 php artisan module:tenant-migrate-rollback --tenants={{tenant-id}} {{module}}
 ```
 
+### Seed Commands
+
+this Command Run {module}TenantDatabaseSeeder
+
+```
+php artisan module:tenant-seed --tenants={{tenant-id}}// tenant is comma separated
+php artisan module:tenant-seed --tenants={{tenant-id}} {{module}}
+```
+
 ### Route
 ```
 as tenant way
