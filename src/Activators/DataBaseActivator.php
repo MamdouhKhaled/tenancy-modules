@@ -44,7 +44,7 @@ class DatabaseActivator implements ActivatorInterface
 
     public function setActiveByName(string $name, bool $active): void
     {
-        BaseModule::where([
+        BaseModule::updateOrCreate([
             'name' => $name,
             'tenant_id' => $this->tenantIdentifier(),
         ])->update(['is_active' => $active]);
