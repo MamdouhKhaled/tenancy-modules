@@ -2,165 +2,66 @@
 
 namespace Mamdouh\TenancyModules\Activators;
 
-use Illuminate\Container\Container;
-use Illuminate\Contracts\Filesystem\FileNotFoundException;
-use Mamdouh\TenancyModules\IdentificationTenant;
+use App\Models\Module as BaseModule;
+use Illuminate\Support\Facades\Schema;
+use Mamdouh\TenancyModules\Traits\TenantModuleAware;
 use Nwidart\Modules\Contracts\ActivatorInterface;
 use Nwidart\Modules\Module;
 
-class DataBaseActivator implements ActivatorInterface
+class DatabaseActivator implements ActivatorInterface
 {
-    protected $tenant;
-    private $cache;
-    private $files;
-    private $config;
-    private $cacheKey;
-    private $cacheLifetime;
-    private $statusesFile;
-    protected $modulesStatuses;
-    protected static $tenancy;
-    public static function setTenant($tenant)
-    {
-        self::$tenancy = $tenant;
-    }
-    public function __construct(Container $app)
-    {
-        if (!app()->runningInConsole()) {
-            self::$tenancy = app(IdentificationTenant::class)->getTenant();
-        }
-        $this->cache = $app['cache'];
-        $this->files = $app['files'];
-        $this->config = $app['config'];
-        $this->statusesFile = $this->config('statuses-file');
-        $this->cacheKey = $this->config('cache-key');
-        $this->cacheLifetime = $this->config('cache-lifetime');
-        $this->modulesStatuses = $this->getModulesStatuses();
-    }
+    use TenantModuleAware;
 
-    /**
-     * @inheritDoc
-     */
     public function enable(Module $module): void
     {
-        $this->config->get('tenancymodules.model')::updateOrCreate([
-            'tenant_id' => self::$tenancy,
-            'name' => $module->getName()
-        ],[
-            'tenant_id' => self::$tenancy,
-            'name' => $module->getName(),
-            'isActive'=>true
-        ]);
+        $this->setActiveByName($module->getName(), true);
     }
 
-    /**
-     * @inheritDoc
-     */
     public function disable(Module $module): void
     {
-        $this->config->get('tenancymodules.model')::updateOrCreate([
-            'tenant_id' => self::$tenancy,
-            'name' => $module->getName()
-        ],[
-            'tenant_id' => self::$tenancy,
-            'name' => $module->getName(),
-            'isActive'=>false
-        ]);
+        $this->setActiveByName($module->getName(), false);
     }
 
-    /**
-     * @inheritDoc
-     */
-    public function hasStatus(Module $module, bool $status): bool
+    public function hasStatus(Module|string $module, bool $status): bool
     {
-        $back = false;
-        if($req = $this->config->get('tenancymodules.model')::where([
-            'tenant_id' => self::$tenancy,
-            'name' => $module->getName()
-        ])->first()){
-            $back = $req->isActive;
+        $name = $module instanceof Module ? $module->getName() : $module;
+        // Check if table exists before querying
+        if (! Schema::hasTable('base_modules')) {
+            return false;
         }
-        return  $back;
+        $currentStatus = BaseModule::where([
+            'name' => $name,
+            'tenant_id' => $this->tenantIdentifier(),
+        ])->value('is_active');
+
+        return $currentStatus === $status;
     }
 
-    /**
-     * @inheritDoc
-     */
     public function setActive(Module $module, bool $active): void
     {
-        // TODO: Implement setActive() method.
+        $this->setActiveByName($module->getName(), $active);
     }
 
-    /**
-     * @inheritDoc
-     */
     public function setActiveByName(string $name, bool $active): void
     {
-        // TODO: Implement setActiveByName() method.
+        BaseModule::where([
+            'name' => $name,
+            'tenant_id' => $this->tenantIdentifier(),
+        ])->update(['is_active' => $active]);
     }
 
-    /**
-     * @inheritDoc
-     */
     public function delete(Module $module): void
     {
-        // TODO: Implement delete() method.
+        BaseModule::where([
+            'name' => $module->getName(),
+            'tenant_id' => $this->tenantIdentifier(),
+        ])->delete();
     }
 
-    /**
-     * @inheritDoc
-     */
     public function reset(): void
     {
-        // TODO: Implement reset() method.
-    }
-
-    private function writeJson(): void
-    {
-        $this->files->put($this->statusesFile, json_encode($this->modulesStatuses, JSON_PRETTY_PRINT));
-    }
-
-    /**
-     * Reads the json file that contains the activation statuses.
-     * @return array
-     * @throws FileNotFoundException
-     */
-    private function readJson(): array
-    {
-        if (!$this->files->exists($this->statusesFile)) {
-            return [];
-        }
-
-        return json_decode($this->files->get($this->statusesFile), true);
-    }
-
-    private function getModulesStatuses(): array
-    {
-        if (!$this->config->get('modules.cache.enabled')) {
-            return $this->readJson();
-        }
-
-        return $this->cache->store($this->config->get('modules.cache.driver'))->remember($this->cacheKey, $this->cacheLifetime, function () {
-            return $this->readJson();
-        });
-    }
-
-    /**
-     * Reads a config parameter under the 'activators.file' key
-     *
-     * @param  string $key
-     * @param  $default
-     * @return mixed
-     */
-    private function config(string $key, $default = null)
-    {
-        return $this->config->get('modules.activators.database.' . $key, $default);
-    }
-
-    /**
-     * Flushes the modules activation statuses cache
-     */
-    private function flushCache(): void
-    {
-        $this->cache->store($this->config->get('modules.cache.driver'))->forget($this->cacheKey);
+        BaseModule::where([
+            'tenant_id' => $this->tenantIdentifier(),
+        ])->delete();
     }
 }

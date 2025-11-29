@@ -15,127 +15,163 @@ use Nwidart\Modules\Traits\ModuleCommandTrait;
 use RuntimeException;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
+use Throwable;
 
 class TenantSeedCommand extends Command
 {
     use ModuleCommandTrait;
 
-    /**
-     * The console command name.
-     *
-     * @var string
-     */
     protected $name = 'module:tenant-seed';
 
-    /**
-     * The console command description.
-     *
-     * @var string
-     */
-    protected $description = 'Run database seeder from the specified module or from all modules.';
+    protected $description = 'Run database seeder from the specified module or from all modules for specific tenants.';
 
-    private function configOverwrite() :void
-    {
-        $configRepository = app()->make(Repository::class);
-        $config = Arr::dot($configRepository->get('tenancymodules'));
-        foreach ($config as $configKey => $configValue){
-            $configRepository->set($configKey,$configValue);
-        }
-    }
-    /**
-     * Execute the console command.
-     */
     public function handle(): int
     {
-        $this->configOverwrite();
-
         try {
-            if ($name = $this->argument('module')) {
-                $name = Str::studly($name);
+            $this->overwriteConfigFromTenancyModules();
 
-                tenancy()->runForMultiple($this->option('tenants'), function ($tenant) use($name){
-                    $this->line("Tenant: {$tenant->getTenantKey()}");
-                    $this->moduleSeed($this->getModuleByName($name));
-                });
-            } else {
-                $modules = $this->getModuleRepository()->getOrdered();
-                tenancy()->runForMultiple($this->option('tenants'), function ($tenant) use($name,$modules){
-                    $this->line("Tenant: {$tenant->getTenantKey()}");
-                    array_walk($modules, [$this, 'moduleSeed']);
-                    $this->info('All modules seeded.');
-                });
+            $moduleName = $this->argument('module');
 
+            if ($moduleName) {
+                return $this->seedModule($moduleName);
             }
-        } catch (\Error $e) {
-            $e = new ErrorException($e->getMessage(), $e->getCode(), 1, $e->getFile(), $e->getLine(), $e);
+
+            return $this->seedAllModules();
+        } catch (ErrorException $e) {
             $this->reportException($e);
             $this->renderException($this->getOutput(), $e);
 
-            return E_ERROR;
-        } catch (\Exception $e) {
+            return 1;
+        } catch (Throwable $e) {
             $this->reportException($e);
             $this->renderException($this->getOutput(), $e);
 
-            return E_ERROR;
+            return 1;
         }
+    }
+
+    protected function seedModule(string $moduleName): int
+    {
+        try {
+            $module = $this->getModuleByName(Str::studly($moduleName));
+
+            $this->line("Seeding module: <info>{$module->getName()}</info>");
+            $this->runModuleSeed($module);
+
+            return 0;
+        } catch (Throwable $e) {
+            $this->components->error("Failed to seed module '{$moduleName}': {$e->getMessage()}");
+
+            return 1;
+        }
+    }
+
+    protected function seedAllModules(): int
+    {
+        $modules = $this->getModuleRepository()->getOrdered();
+        $failedModules = [];
+
+        foreach ($modules as $module) {
+            $this->line("Seeding module: <info>{$module->getName()}</info>");
+
+            try {
+                $this->runModuleSeed($module);
+            } catch (Throwable $e) {
+                $failedModules[] = $module->getName();
+                $this->components->error("Failed to seed module '{$module->getName()}': {$e->getMessage()}");
+
+                if (! $this->option('force')) {
+                    $this->components->warn('Use --force to continue on errors');
+
+                    return 1;
+                }
+            }
+        }
+
+        if (! empty($failedModules)) {
+            $this->components->warn('Some modules failed to seed: '.implode(', ', $failedModules));
+
+            return 1;
+        }
+
+        $this->components->info('All modules seeded successfully.');
 
         return 0;
     }
 
-    /**
-     * @throws RuntimeException
-     * @return RepositoryInterface
-     */
-    public function getModuleRepository(): RepositoryInterface
+    protected function runModuleSeed(Module $module): void
     {
+        $tenants = $this->resolveTenants();
 
-        $modules = $this->laravel['modules'];
-        if (!$modules instanceof RepositoryInterface) {
-            throw new RuntimeException('Module repository not found!');
-        }
-        return $modules;
-    }
-
-    /**
-     * @param $name
-     *
-     * @throws RuntimeException
-     *
-     * @return Module
-     */
-    public function getModuleByName($name)
-    {
-        $modules = $this->getModuleRepository();
-        if ($modules->has($name) === false) {
-            throw new RuntimeException("Module [$name] does not exists.");
+        if (empty($tenants)) {
+            throw new RuntimeException('No tenants found to seed. Use --tenants option to specify tenants.');
         }
 
-        return $modules->find($name);
+        $this->components->info('Seeding for '.count($tenants).' tenant(s)');
+
+        $failedTenants = [];
+
+        tenancy()->runForMultiple($tenants, function ($tenant) use ($module, &$failedTenants) {
+            try {
+                $this->line("  → Tenant: <comment>{$tenant->getTenantKey()}</comment>");
+
+                $this->seedModuleForTenant($module);
+
+            } catch (Throwable $e) {
+                $failedTenants[] = $tenant->getTenantKey();
+                $this->components->error("  ✗ Failed for tenant {$tenant->getTenantKey()}: {$e->getMessage()}");
+
+                if (! $this->option('force')) {
+                    throw $e;
+                }
+            }
+        });
+
+        if (! empty($failedTenants)) {
+            $this->components->warn('Failed tenants: '.implode(', ', $failedTenants));
+
+            if (! $this->option('force')) {
+                throw new RuntimeException('Seeding failed for some tenants.');
+            }
+        }
     }
 
-    /**
-     * @param Module $module
-     *
-     * @return void
-     */
-    public function moduleSeed(Module $module)
+    protected function seedModuleForTenant(Module $module): void
+    {
+        $seeders = $this->getModuleSeeders($module);
+
+        if (empty($seeders)) {
+            $this->line('    <comment>No seeders found</comment>');
+
+            return;
+        }
+
+        foreach ($seeders as $seeder) {
+            $this->executeSeed($seeder);
+        }
+
+        $this->line('    <info>Seeded successfully</info>');
+    }
+
+    protected function getModuleSeeders(Module $module): array
     {
         $seeders = [];
         $name = $module->getName();
         $config = $module->get('migration');
 
         if (is_array($config) && array_key_exists('seeds', $config)) {
-            foreach ((array)$config['seeds'] as $class) {
+            foreach ((array) $config['seeds'] as $class) {
                 if (class_exists($class)) {
                     $seeders[] = $class;
                 }
             }
         } else {
-            $class = $this->getSeederName($name); //legacy support
+            // Legacy support - try default seeder name
+            $class = $this->getSeederName($name);
             if (class_exists($class)) {
                 $seeders[] = $class;
             } else {
-                //look at other namespaces
+                // Look at other namespaces
                 $classes = $this->getSeederNames($name);
                 foreach ($classes as $class) {
                     if (class_exists($class)) {
@@ -145,124 +181,138 @@ class TenantSeedCommand extends Command
             }
         }
 
-        if (count($seeders) > 0) {
-            array_walk($seeders, [$this, 'dbSeed']);
-            $this->info("Module [$name] seeded.");
-        }
+        return $seeders;
     }
 
-    /**
-     * Seed the specified module.
-     *
-     * @param string $className
-     */
-    protected function dbSeed($className)
+    protected function executeSeed(string $className): void
     {
+        $params = [];
+
         if ($option = $this->option('class')) {
-            $params['--class'] = Str::finish(substr($className, 0, strrpos($className, '\\')), '\\') . $option;
+            $params['--class'] = Str::finish(
+                substr($className, 0, strrpos($className, '\\')),
+                '\\'
+            ).$option;
         } else {
-            $params = ['--class' => $className];
+            $params['--class'] = $className;
         }
 
-        if ($option = $this->option('database')) {
-            $params['--database'] = $option;
+        if ($database = $this->option('database')) {
+            $params['--database'] = $database;
         }
 
-        if ($option = $this->option('force')) {
-            $params['--force'] = $option;
+        if ($this->option('force')) {
+            $params['--force'] = true;
         }
 
         $this->call('db:seed', $params);
     }
 
-    /**
-     * Get master database seeder name for the specified module.
-     *
-     * @param string $name
-     *
-     * @return string
-     */
-    public function getSeederName($name)
+    protected function getSeederName(string $name): string
     {
         $name = Str::studly($name);
-
         $namespace = $this->laravel['modules']->config('namespace');
         $config = GenerateConfigReader::read('seeder');
         $seederPath = str_replace('/', '\\', $config->getPath());
 
-        return $namespace . '\\' . $name . '\\' . $seederPath . '\\' . $name . 'TenantDatabaseSeeder';
+        return $namespace.'\\'.$name.'\\'.$seederPath.'\\'.$name.'TenantDatabaseSeeder';
     }
 
-    /**
-     * Get master database seeder name for the specified module under a different namespace than Modules.
-     *
-     * @param string $name
-     *
-     * @return array $foundModules array containing namespace paths
-     */
-    public function getSeederNames($name)
+    protected function getSeederNames(string $name): array
     {
         $name = Str::studly($name);
-
         $seederPath = GenerateConfigReader::read('seeder');
         $seederPath = str_replace('/', '\\', $seederPath->getPath());
 
         $foundModules = [];
         foreach ($this->laravel['modules']->config('scan.paths') as $path) {
             $namespace = array_slice(explode('/', $path), -1)[0];
-            $foundModules[] = $namespace . '\\' . $name . '\\' . $seederPath . '\\' . $name . 'TenantDatabaseSeeder';
+            $foundModules[] = $namespace.'\\'.$name.'\\'.$seederPath.'\\'.$name.'TenantDatabaseSeeder';
         }
 
         return $foundModules;
     }
 
-    /**
-     * Report the exception to the exception handler.
-     *
-     * @param  \Symfony\Component\Console\Output\OutputInterface  $output
-     * @param  \Throwable  $e
-     * @return void
-     */
-    protected function renderException($output, \Exception $e)
+    protected function getModuleByName(string $name): Module
+    {
+        $modules = $this->getModuleRepository();
+
+        if (! $modules->has($name)) {
+            throw new RuntimeException("Module [{$name}] does not exist.");
+        }
+
+        return $modules->find($name);
+    }
+
+    protected function getModuleRepository(): RepositoryInterface
+    {
+        $modules = $this->laravel['modules'];
+
+        if (! $modules instanceof RepositoryInterface) {
+            throw new RuntimeException('Module repository not found!');
+        }
+
+        return $modules;
+    }
+
+    protected function resolveTenants(): array
+    {
+        $tenantsOption = $this->option('tenants');
+
+        if (! $tenantsOption) {
+            return tenancy()->all();
+        }
+
+        $tenantIds = array_map('trim', explode(',', $tenantsOption));
+        $tenants = [];
+
+        foreach ($tenantIds as $tenantId) {
+            $tenant = tenancy()->find($tenantId);
+
+            if (! $tenant) {
+                throw new \InvalidArgumentException("Tenant '{$tenantId}' not found.");
+            }
+
+            $tenants[] = $tenant;
+        }
+
+        return $tenants;
+    }
+
+    protected function overwriteConfigFromTenancyModules(): void
+    {
+        $config = app(Repository::class);
+        $tenancyConfig = Arr::dot($config->get('tenancymodules', []));
+
+        foreach ($tenancyConfig as $key => $value) {
+            $config->set($key, $value);
+        }
+    }
+
+    protected function renderException($output, \Exception $e): void
     {
         $this->laravel[ExceptionHandler::class]->renderForConsole($output, $e);
     }
 
-    /**
-     * Report the exception to the exception handler.
-     *
-     * @param  \Throwable  $e
-     * @return void
-     */
-    protected function reportException(\Exception $e)
+    protected function reportException(\Exception $e): void
     {
         $this->laravel[ExceptionHandler::class]->report($e);
     }
 
-    /**
-     * Get the console command arguments.
-     *
-     * @return array
-     */
-    protected function getArguments()
+    protected function getArguments(): array
     {
         return [
-            ['module', InputArgument::OPTIONAL, 'The name of module will be used.'],
+            ['module', InputArgument::OPTIONAL, 'The name of module to seed. If omitted, all modules will be seeded.'],
         ];
     }
 
-    /**
-     * Get the console command options.
-     *
-     * @return array
-     */
-    protected function getOptions()
+    protected function getOptions(): array
     {
         return [
             ['class', null, InputOption::VALUE_OPTIONAL, 'The class name of the root seeder.'],
             ['database', null, InputOption::VALUE_OPTIONAL, 'The database connection to seed.'],
-            ['force', null, InputOption::VALUE_NONE, 'Force the operation to run when in production.'],
-            ['tenants', null, InputOption::VALUE_OPTIONAL, 'Run seeder for specific tenants'],
+            ['force', null, InputOption::VALUE_NONE, 'Force the operation to run when in production and continue on errors.'],
+            ['tenants', null, InputOption::VALUE_OPTIONAL, 'Comma-separated tenant IDs. If omitted, all tenants will be used.'],
         ];
     }
 }

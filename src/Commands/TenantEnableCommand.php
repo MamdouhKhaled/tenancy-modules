@@ -9,99 +9,96 @@ use Symfony\Component\Console\Input\InputOption;
 
 class TenantEnableCommand extends Command
 {
-    /**
-     * The console command name.
-     *
-     * @var string
-     */
-    protected $name = 'module:tenant-enable {--tenant}';
+    protected $name = 'module:tenant-enable';
 
-    /**
-     * The console command description.
-     *
-     * @var string
-     */
-    protected $description = 'Enable the specified module.';
+    protected $description = 'Enable the specified module for a tenant.';
 
-    /**
-     * Execute the console command.
-     */
     public function handle(): int
     {
+        $tenant = $this->option('tenant');
 
-        $this->components->info('Enabling module ...');
+        if (! $tenant) {
+            $this->components->error('Tenant identifier is required. Use --tenant option.');
 
-            if ($name = $this->argument('module') ) {
-                $this->enable($name);
+            return 1;
+        }
 
-                return 0;
+        $this->setTenantContext($tenant);
+
+        $moduleName = $this->argument('module');
+
+        if ($moduleName) {
+            return $this->enableModule($moduleName);
+        }
+
+        return $this->enableAllModules();
+    }
+
+    protected function enableAllModules(): int
+    {
+        $this->components->info('Enabling all modules...');
+
+        $modules = $this->laravel['modules']->all();
+        $enabledCount = 0;
+
+        foreach ($modules as $module) {
+            if ($this->enableModule($module) === 0) {
+                $enabledCount++;
             }
+        }
 
-            $this->enableAll();
+        $this->components->info("Enabled {$enabledCount} module(s).");
+
         return 0;
     }
 
-    /**
-     * enableAll
-     *
-     * @return void
-     */
-    public function enableAll()
+    protected function enableModule(string|Module $module): int
     {
-        /** @var Modules $modules */
-        $modules = $this->laravel['modules']->all();
-        foreach ($modules as $module) {
+        try {
+            $moduleInstance = $module instanceof Module
+                ? $module
+                : $this->laravel['modules']->findOrFail($module);
 
-            $this->enable($module);
+            if ($moduleInstance->isDisabled()) {
+                $moduleInstance->enable();
+                $this->components->info("Module [{$moduleInstance}] enabled successfully.");
+            } else {
+                $this->components->warn("Module [{$moduleInstance}] is already enabled.");
+            }
+
+            return 0;
+        } catch (\Exception $e) {
+            $this->components->error("Failed to enable module: {$e->getMessage()}");
+
+            return 1;
         }
     }
 
-    /**
-     * enable
-     *
-     * @param string $name
-     * @return void
-     */
-    public function enable($name)
+    protected function setTenantContext(string $tenant): void
     {
-        if ($name instanceof Module) {
-            $module = $name;
-        }else {
-            $module = $this->laravel['modules']->findOrFail($name);
-        }
-        $this->config()::setTenant($this->option('tenant'));
-
-        if ($module->isDisabled()) {
-            $module->enable();
-
-            $this->components->info("Module [{$module}] enabled successful.");
-        }else {
-            $this->components->warn("Module [{$module}] has already enabled.");
-        }
-
+        $activatorClass = $this->getActivatorClass();
+        $activatorClass::setTenantIdentifier(fn () => $tenant);
     }
 
-    /**
-     * Get the console command arguments.
-     *
-     * @return array
-     */
-    protected function getArguments()
+    protected function getActivatorClass(): string
+    {
+        $config = config('tenancymodules.modules');
+        $activator = $config['activator'];
+
+        return $config['activators'][$activator]['class'];
+    }
+
+    protected function getArguments(): array
     {
         return [
-            ['module', InputArgument::OPTIONAL, 'Module name.'],
+            ['module', InputArgument::OPTIONAL, 'Module name. If omitted, all modules will be enabled.'],
         ];
     }
 
-    protected function getOptions()
+    protected function getOptions(): array
     {
         return [
-            ['tenant', null, InputOption::VALUE_OPTIONAL, 'Enable Module To specific tenant'],
+            ['tenant', null, InputOption::VALUE_REQUIRED, 'Tenant identifier (required)'],
         ];
-    }
-
-    protected function config(){
-        $config = app('config');
-        return $config->get('tenancymodules.modules.activators.'.$config->get('tenancymodules.modules.activator').'.class');
     }
 }

@@ -2,24 +2,24 @@
 
 namespace Mamdouh\TenancyModules;
 
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Support\Arr;
 use Illuminate\Support\ServiceProvider;
-use JetBrains\PhpStorm\NoReturn;
 use Mamdouh\TenancyModules\Commands\TenantDisableCommand;
 use Mamdouh\TenancyModules\Commands\TenantEnableCommand;
 use Mamdouh\TenancyModules\Commands\TenantMigrateCommand;
 use Mamdouh\TenancyModules\Commands\TenantMigrateRollbackCommand;
-use Illuminate\Contracts\Config\Repository;
 use Mamdouh\TenancyModules\Commands\TenantSeedCommand;
 
-class TenancyModulesServiceProvide extends ServiceProvider
+class TenancyModulesServiceProvider extends ServiceProvider
 {
     private Repository $config;
+
     public function __construct($app)
     {
 
         //
-//        private Repository $config
+        //        private Repository $config
         parent::__construct($app);
 
     }
@@ -29,7 +29,7 @@ class TenancyModulesServiceProvide extends ServiceProvider
      */
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__.'/../config/tenancymodules.php','tenancymodules');
+        $this->mergeConfigFrom(__DIR__.'/../config/tenancymodules.php', 'tenancymodules');
         $this->configOverwrite();
         $this->publishes([
             __DIR__.'/../config/tenancymodules.php' => config_path('tenancymodules.php'),
@@ -42,7 +42,6 @@ class TenancyModulesServiceProvide extends ServiceProvider
     public function boot(): void
     {
 
-        $this->loadRoutesFrom(__DIR__.'/routes/web.php');
         $this->loadMigrationsFrom(__DIR__.'/database/migrations');
         if ($this->app->runningInConsole()) {
             $this->commands([
@@ -55,14 +54,14 @@ class TenancyModulesServiceProvide extends ServiceProvider
         }
     }
 
-    private function configOverwrite() :void
+    private function configOverwrite(): void
     {
         $this->config = $this->app->make(Repository::class);
         $tenancymodules = $this->config->get('tenancymodules');
         unset($tenancymodules['modules']['paths']);
         $config = Arr::dot($tenancymodules);
-        foreach ($config as $configKey => $configValue){
-            $this->config->set($configKey,$configValue);
+        foreach ($config as $configKey => $configValue) {
+            $this->config->set($configKey, $configValue);
         }
     }
 }

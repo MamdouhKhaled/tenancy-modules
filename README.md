@@ -24,10 +24,10 @@ php artisan vendor:publish --tag=tenancymodules
 ### Enable / Disable modules Commands
 ```
 php artisan module:tenant-enable --tenant={{tenant-id}} // enable all modules for this tenant
-php artisan module:tenant-enable --tenant={{tenant-id}} --module={{module_name}} // enable `module_name` modules for this tenant
+php artisan module:tenant-enable {{module_name}} --tenant={{tenant-id}} // enable `module_name` modules for this tenant
 
 php artisan module:tenant-disable --tenant={{tenant-id}} // enable all modules for this tenant
-php artisan module:tenant-disable --tenant={{tenant-id}} --module={{module_name}} // enable `module_name` modules for this tenant
+php artisan module:tenant-disable {{module_name}} --tenant={{tenant-id}} // enable `module_name` modules for this tenant
 ```
 ### Migration / rollback Commands
 ```

@@ -5,121 +5,199 @@ namespace Mamdouh\TenancyModules\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Support\Arr;
+use Nwidart\Modules\Contracts\RepositoryInterface;
 use Nwidart\Modules\Migrations\Migrator;
 use Nwidart\Modules\Module;
 use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputOption;
+use Throwable;
 
 class TenantMigrateCommand extends Command
 {
-    /**
-     * The console command name.
-     *
-     * @var string
-     */
     protected $name = 'module:tenant-migrate';
 
-    /**
-     * The console command description.
-     *
-     * @var string
-     */
-    protected $description = 'Migrate the migrations from the specified module or from all modules.';
+    protected $description = 'Migrate the migrations from the specified module or from all modules for specific tenants.';
 
-    /**
-     * @var \Nwidart\Modules\Contracts\RepositoryInterface
-     */
-    protected $module;
-    private function configOverwrite() :void
-    {
-        $configRepository = app()->make(Repository::class);
-        $config = Arr::dot($configRepository->get('tenancymodules'));
-        foreach ($config as $configKey => $configValue){
-            $configRepository->set($configKey,$configValue);
-        }
-    }
-    /**
-     * Execute the console command.
-     *
-     * @return mixed
-     */
+    protected RepositoryInterface $moduleRepository;
+
     public function handle(): int
     {
-        $this->configOverwrite();
-        $this->module = $this->laravel['modules'];
+        try {
+            $this->overwriteConfigFromTenancyModules();
+            $this->moduleRepository = $this->laravel['modules'];
 
-        $name = $this->argument('module');
-        if ($name) {
-            $module = $this->module->findOrFail($name);
+            $moduleName = $this->argument('module');
 
-            $this->migrate($module);
+            if ($moduleName) {
+                return $this->migrateModule($moduleName);
+            }
+
+            return $this->migrateAllModules();
+        } catch (Throwable $e) {
+            $this->components->error("Migration failed: {$e->getMessage()}");
+            $this->error($e->getTraceAsString());
+
+            return 1;
+        }
+    }
+
+    protected function migrateModule(string $moduleName): int
+    {
+        try {
+            $module = $this->moduleRepository->findOrFail($moduleName);
+
+            $this->line("Running migrations for module: <info>{$module->getName()}</info>");
+            $this->runModuleMigration($module);
 
             return 0;
+        } catch (Throwable $e) {
+            $this->components->error("Failed to migrate module '{$moduleName}': {$e->getMessage()}");
+
+            return 1;
+        }
+    }
+
+    protected function migrateAllModules(): int
+    {
+        $direction = $this->option('direction');
+        $modules = $this->moduleRepository->getOrdered($direction);
+        $failedModules = [];
+
+        foreach ($modules as $module) {
+            $this->line("Running migrations for module: <info>{$module->getName()}</info>");
+
+            try {
+                $this->runModuleMigration($module);
+            } catch (Throwable $e) {
+                $failedModules[] = $module->getName();
+                $this->components->error("Failed to migrate module '{$module->getName()}': {$e->getMessage()}");
+
+                if (! $this->option('force')) {
+                    $this->components->warn('Use --force to continue on errors');
+
+                    return 1;
+                }
+            }
         }
 
-        foreach ($this->module->getOrdered($this->option('direction')) as $module) {
+        if (! empty($failedModules)) {
+            $this->components->warn('Some modules failed to migrate: '.implode(', ', $failedModules));
 
-            $this->line('Running for module: <info>' . $module->getName() . '</info>');
-            $this->migrate($module);
+            return 1;
         }
+
+        $this->components->info('All modules migrated successfully.');
 
         return 0;
     }
 
-    /**
-     * Run the migration from the specified module.
-     *
-     * @param Module $module
-     */
-    protected function migrate(Module $module)
+    protected function runModuleMigration(Module $module): void
     {
-        $path = str_replace(base_path(), '', (new Migrator($module, $this->getLaravel()))->getPath());
-        if ($this->option('subpath')) {
-            $path = $path . "/" . $this->option("subpath");
-        }
-        tenancy()->runForMultiple($this->option('tenants'), function ($tenant) use($path,$module){
-            $this->line("Tenant: {$tenant->getTenantKey()}");
-            $this->call('migrate', [
-                '--path' => $path,
-                '--database' => $this->option('database'),
-                '--pretend' => $this->option('pretend'),
-                '--force' => $this->option('force'),
-            ]);
+        $migrator = new Migrator($module, $this->getLaravel());
+        $path = str_replace(base_path(), '', $migrator->getPath());
 
-            if ($this->option('seed')) {
-                $this->call('module:seed', ['module' => $module->getName(), '--force' => $this->option('force')]);
+        if ($subpath = $this->option('subpath')) {
+            $path = rtrim($path, '/').'/'.ltrim($subpath, '/');
+        }
+
+        $tenants = $this->resolveTenants();
+
+        if (empty($tenants)) {
+            throw new \RuntimeException('No tenants found to migrate. Use --tenants option to specify tenants.');
+        }
+
+        $this->components->info('Migrating for '.count($tenants).' tenant(s)');
+
+        $failedTenants = [];
+
+        tenancy()->runForMultiple($tenants, function ($tenant) use ($path, $module, &$failedTenants) {
+            try {
+                $this->line("  → Tenant: <comment>{$tenant->getTenantKey()}</comment>");
+
+                $this->call('migrate', [
+                    '--path' => $path,
+                    '--database' => $this->option('database'),
+                    '--pretend' => $this->option('pretend'),
+                    '--force' => $this->option('force'),
+                ]);
+
+                if ($this->option('seed')) {
+                    $this->call('module:seed', [
+                        'module' => $module->getName(),
+                        '--force' => $this->option('force'),
+                    ]);
+                }
+
+            } catch (Throwable $e) {
+                $failedTenants[] = $tenant->getTenantKey();
+                $this->components->error("  ✗ Failed for tenant {$tenant->getTenantKey()}: {$e->getMessage()}");
+
+                if (! $this->option('force')) {
+                    throw $e;
+                }
             }
         });
 
+        if (! empty($failedTenants)) {
+            $this->components->warn('Failed tenants: '.implode(', ', $failedTenants));
+
+            if (! $this->option('force')) {
+                throw new \RuntimeException('Migration failed for some tenants.');
+            }
+        }
     }
 
-    /**
-     * Get the console command arguments.
-     *
-     * @return array
-     */
-    protected function getArguments()
+    protected function resolveTenants(): array
+    {
+        $tenantsOption = $this->option('tenants');
+
+        if (! $tenantsOption) {
+            return tenancy()->all();
+        }
+
+        $tenantIds = array_map('trim', explode(',', $tenantsOption));
+        $tenants = [];
+
+        foreach ($tenantIds as $tenantId) {
+            $tenant = tenancy()->find($tenantId);
+
+            if (! $tenant) {
+                throw new \InvalidArgumentException("Tenant '{$tenantId}' not found.");
+            }
+
+            $tenants[] = $tenant;
+        }
+
+        return $tenants;
+    }
+
+    protected function overwriteConfigFromTenancyModules(): void
+    {
+        $config = app(Repository::class);
+        $tenancyConfig = Arr::dot($config->get('tenancymodules', []));
+
+        foreach ($tenancyConfig as $key => $value) {
+            $config->set($key, $value);
+        }
+    }
+
+    protected function getArguments(): array
     {
         return [
-            ['module', InputArgument::OPTIONAL, 'The name of module will be used.'],
+            ['module', InputArgument::OPTIONAL, 'The name of module to migrate. If omitted, all modules will be migrated.'],
         ];
     }
 
-    /**
-     * Get the console command options.
-     *
-     * @return array
-     */
-    protected function getOptions()
+    protected function getOptions(): array
     {
         return [
             ['direction', 'd', InputOption::VALUE_OPTIONAL, 'The direction of ordering.', 'asc'],
             ['database', null, InputOption::VALUE_OPTIONAL, 'The database connection to use.'],
             ['pretend', null, InputOption::VALUE_NONE, 'Dump the SQL queries that would be run.'],
-            ['force', null, InputOption::VALUE_NONE, 'Force the operation to run when in production.'],
+            ['force', null, InputOption::VALUE_NONE, 'Force the operation to run when in production and continue on errors.'],
             ['seed', null, InputOption::VALUE_NONE, 'Indicates if the seed task should be re-run.'],
-            ['subpath', null, InputOption::VALUE_OPTIONAL, 'Indicate a subpath to run your migrations from'],
-            ['tenants', null, InputOption::VALUE_OPTIONAL, 'Run Migration rollback in specific tenant'],
+            ['subpath', null, InputOption::VALUE_OPTIONAL, 'Indicate a subpath to run your migrations from.'],
+            ['tenants', null, InputOption::VALUE_OPTIONAL, 'Comma-separated tenant IDs. If omitted, all tenants will be used.'],
         ];
     }
 }

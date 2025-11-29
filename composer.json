@@ -2,10 +2,6 @@
     "name": "mamdouhkhaled/tenancy-modules",
     "description": "Connect Laravel Tenancy with Laravel Modules",
     "license": "MIT",
-    "require": {
-        "nwidart/laravel-modules": "*",
-        "stancl/tenancy": "*"
-    },
     "autoload": {
         "psr-4": {
             "Mamdouh\\TenancyModules\\": "src/"
@@ -20,9 +16,10 @@
     "extra": {
         "laravel": {
             "providers": [
-                "Mamdouh\\TenancyModules\\TenancyModulesServiceProvide"
+                "Mamdouh\\TenancyModules\\TenancyModulesServiceProvider"
             ]
         }
     },
-    "minimum-stability": "stable"
+    "minimum-stability": "stable",
+    "prefer-stable": true
 }
