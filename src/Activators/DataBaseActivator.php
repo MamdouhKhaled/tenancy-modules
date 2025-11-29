@@ -2,7 +2,6 @@
 
 namespace Mamdouh\TenancyModules\Activators;
 
-use App\Models\Module as BaseModule;
 use Illuminate\Support\Facades\Schema;
 use Mamdouh\TenancyModules\Traits\TenantModuleAware;
 use Nwidart\Modules\Contracts\ActivatorInterface;
@@ -26,10 +25,10 @@ class DatabaseActivator implements ActivatorInterface
     {
         $name = $module instanceof Module ? $module->getName() : $module;
         // Check if table exists before querying
-        if (! Schema::hasTable('base_modules')) {
+        if (! Schema::hasTable((new ($this->model()))->getTable())) {
             return false;
         }
-        $currentStatus = BaseModule::where([
+        $currentStatus = $this->model()::where([
             'name' => $name,
             'tenant_id' => $this->tenantIdentifier(),
         ])->value('is_active');
@@ -44,7 +43,7 @@ class DatabaseActivator implements ActivatorInterface
 
     public function setActiveByName(string $name, bool $active): void
     {
-        BaseModule::updateOrCreate([
+        $this->model()::updateOrCreate([
             'name' => $name,
             'tenant_id' => $this->tenantIdentifier(),
         ])->update(['is_active' => $active]);
@@ -52,7 +51,7 @@ class DatabaseActivator implements ActivatorInterface
 
     public function delete(Module $module): void
     {
-        BaseModule::where([
+        $this->model()::where([
             'name' => $module->getName(),
             'tenant_id' => $this->tenantIdentifier(),
         ])->delete();
@@ -60,8 +59,13 @@ class DatabaseActivator implements ActivatorInterface
 
     public function reset(): void
     {
-        BaseModule::where([
+        $this->model()::where([
             'tenant_id' => $this->tenantIdentifier(),
         ])->delete();
+    }
+
+    public function model()
+    {
+        return config('tenancymodules.model');
     }
 }
